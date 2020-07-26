@@ -29,7 +29,7 @@ class Game(EarwaxGame):
         self.sound_generator: Optional[BufferGenerator] = None
         self.intro: bool = True
         self.board_size: int = 5
-        self.board_depth: int = 2
+        self.board_depth: int = 13
         super().__init__('Lucky Thirteen')
 
     def playing(self) -> bool:
