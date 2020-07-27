@@ -40,7 +40,7 @@ class Game(EarwaxGame):
         self.intro_generator: Optional[BufferGenerator] = None
         self.music_source: Optional[DirectSource] = None
         self.music_generator: Optional[BufferGenerator] = None
-        self.music_volume: float = 1.0
+        self.music_volume: float = 0.5
         self.sound_source: Optional[DirectSource] = None
         self.sound_generator: Optional[BufferGenerator] = None
         self.intro: bool = True
