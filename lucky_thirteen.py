@@ -237,5 +237,15 @@ def deselect_tiles() -> None:
         game.play_sound('deselect.wav')
 
 
+@game.action('Show stack depth', symbol=key.D, can_run=game.playing)
+def show_depth() -> None:
+    """says the depth of the currently selected stack."""
+    l: int = len(game.board[game.coords])
+    if not l:
+        game.play_sound('fail.wav')
+    else:
+        game.speak(f'{l}.wav')
+
+
 if __name__ == '__main__':
     game.run()
