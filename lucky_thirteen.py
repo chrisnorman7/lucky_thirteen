@@ -227,7 +227,7 @@ def select_tile() -> None:
         game.check_selection()
 
 
-@game.action('Delect all tiles', symbol=key.ESCAPE, can_run=game.playing)
+@game.action('Deselect all tiles', symbol=key.ESCAPE, can_run=game.playing)
 def deselect_tiles() -> None:
     """Deselect all tiles."""
     if not game.selected:
