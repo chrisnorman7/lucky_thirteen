@@ -9,12 +9,19 @@ from typing import Dict, Generator, List, Optional, Tuple
 from earwax import ActionMenu
 from earwax import Game as EarwaxGame
 from earwax import get_buffer
+from pyglet.clock import schedule_once
 from pyglet.window import key
 from synthizer import Buffer, BufferGenerator, Context, DirectSource
 
+# The type fo board coordinates.
 Coordinates = Tuple[int, int]
 
+# The directory where voice packs are stored.
 voices_directory = Path('sounds', 'voices')
+
+# The speed the player can move. Set to None to allow movement at any time, and
+# disable key repeat.
+move_speed: Optional[float] = None
 
 
 class Game(EarwaxGame):
@@ -32,6 +39,7 @@ class Game(EarwaxGame):
         self.sound_source: Optional[DirectSource] = None
         self.sound_generator: Optional[BufferGenerator] = None
         self.intro: bool = True
+        self.winning: bool = False
         self.board_size: int = 5
         self.board_depth: int = 13
         super().__init__('Lucky Thirteen')
@@ -39,7 +47,7 @@ class Game(EarwaxGame):
 
     def playing(self) -> bool:
         """Returns True if play is in progress."""
-        return self.no_menu() and not self.intro
+        return self.no_menu() and not self.intro and not self.winning
 
     @property
     def coords(self) -> Coordinates:
@@ -99,11 +107,12 @@ class Game(EarwaxGame):
         self.ctx = Context()
         self.start_intro()
 
-    def start_intro(self, play_help: bool = True) -> None:
+    def start_intro(self) -> None:
         """Start intro music."""
+        self.winning = False
+        self.intro = True
         self.play_music('intro.mp3')
-        if play_help:
-            self.speak('intro.wav')
+        self.speak('intro.wav')
 
     def check_selection(self) -> None:
         """Check to see if the selection is less than (still selecting) equal
@@ -132,7 +141,11 @@ class Game(EarwaxGame):
                 break
         else:
             self.play_sound('won.wav')
-            self.start_intro()
+            if self.music_generator is not None:
+                self.music_generator.destroy()
+                self.music_generator = None
+            self.winning = True
+            schedule_once(lambda dt: self.start_intro(), 2)
 
     def lose(self) -> None:
         """They have made more than 13."""
@@ -151,6 +164,7 @@ def skip_intro() -> Generator[None, None, None]:
     yield
     game.intro = False
     game.play_music('main.mp3')
+    game.board = {}
     x: int
     y: int
     for x in range(game.board_size):
@@ -163,7 +177,9 @@ def skip_intro() -> Generator[None, None, None]:
     game.show_selection()
 
 
-@game.action('Move left', symbol=key.LEFT, can_run=game.playing)
+@game.action(
+    'Move left', symbol=key.LEFT, can_run=game.playing, interval=move_speed
+)
 def left() -> None:
     """Move left."""
     if not game.x:
@@ -172,7 +188,9 @@ def left() -> None:
     game.show_selection()
 
 
-@game.action('Move right', symbol=key.RIGHT, can_run=game.playing)
+@game.action(
+    'Move right', symbol=key.RIGHT, can_run=game.playing, interval=move_speed
+)
 def right() -> None:
     """Move right."""
     if game.x == (game.board_size - 1):
@@ -181,7 +199,9 @@ def right() -> None:
     game.show_selection()
 
 
-@game.action('Move forward', symbol=key.UP, can_run=game.playing)
+@game.action(
+    'Move forward', symbol=key.UP, can_run=game.playing, interval=move_speed
+)
 def forward() -> None:
     """Move forward."""
     if game.y == (game.board_size - 1):
@@ -190,7 +210,10 @@ def forward() -> None:
     game.show_selection()
 
 
-@game.action('Move backwards', symbol=key.DOWN, can_run=game.playing)
+@game.action(
+    'Move backwards', symbol=key.DOWN, can_run=game.playing,
+    interval=move_speed
+)
 def backwards() -> None:
     """Move backwards."""
     if not game.y:
@@ -203,7 +226,6 @@ def backwards() -> None:
 def music_up() -> None:
     """Reduce the music volume."""
     game.music_volume += 0.1
-    print(game.music_volume)
     if game.music_source is not None:
         game.music_source.gain = game.music_volume
 
@@ -212,7 +234,6 @@ def music_up() -> None:
 def music_down() -> None:
     """Reduce the music volume."""
     game.music_volume -= 0.1
-    print(game.music_volume)
     if game.music_source is not None:
         game.music_source.gain = game.music_volume
 
@@ -225,6 +246,10 @@ def select_tile() -> None:
     elif game.empty_tile():
         if len(game.selected) >= 2:
             game.win()
+        elif len(game.selected) == 1:
+            game.board[game.selected[0]][-1] = randint(1, 13)
+            game.play_sound('randomise.wav')
+            game.selected.clear()
         else:
             game.show_selection()
     else:
