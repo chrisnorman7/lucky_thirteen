@@ -6,7 +6,7 @@ from random import randint
 from typing import Dict, List, Optional, Tuple, Generator
 
 from earwax import Game as EarwaxGame
-from earwax import get_buffer
+from earwax import get_buffer, ActionMenu
 from pyglet.window import key
 from synthizer import Buffer, BufferGenerator, Context, DirectSource
 
@@ -34,7 +34,7 @@ class Game(EarwaxGame):
 
     def playing(self) -> bool:
         """Returns True if play is in progress."""
-        return not self.intro
+        return self.no_menu() and not self.intro
 
     @property
     def coords(self) -> Coordinates:
@@ -247,5 +247,12 @@ def show_depth() -> None:
         game.speak(f'{l}.wav')
 
 
+@game.action('Help menu', symbol=key.SLASH, modifiers=key.MOD_SHIFT)
+def help_menu() -> None:
+    """Show the help menu."""
+    game.push_menu(ActionMenu(game))
+
+
 if __name__ == '__main__':
+    game.add_default_actions()
     game.run()
