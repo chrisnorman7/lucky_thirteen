@@ -1,16 +1,20 @@
 """A game where you have to select numbers making up 13."""
 
+import os
 import os.path
 from pathlib import Path
 from random import randint
-from typing import Dict, List, Optional, Tuple, Generator
+from typing import Dict, Generator, List, Optional, Tuple
 
+from earwax import ActionMenu
 from earwax import Game as EarwaxGame
-from earwax import get_buffer, ActionMenu
+from earwax import get_buffer
 from pyglet.window import key
 from synthizer import Buffer, BufferGenerator, Context, DirectSource
 
 Coordinates = Tuple[int, int]
+
+voices_directory = Path('sounds', 'voices')
 
 
 class Game(EarwaxGame):
@@ -31,6 +35,7 @@ class Game(EarwaxGame):
         self.board_size: int = 5
         self.board_depth: int = 13
         super().__init__('Lucky Thirteen')
+        self.voice: str = os.listdir(voices_directory)[0]
 
     def playing(self) -> bool:
         """Returns True if play is in progress."""
@@ -62,7 +67,7 @@ class Game(EarwaxGame):
 
     def speak(self, string: str) -> None:
         """Play a file from the voices directory."""
-        string = os.path.join('voices', string)
+        string = os.path.join('voices', self.voice, string)
         return self.play_sound(string)
 
     def play_music(self, filename: str) -> None:
@@ -251,6 +256,17 @@ def show_depth() -> None:
 def help_menu() -> None:
     """Show the help menu."""
     game.push_menu(ActionMenu(game))
+
+
+@game.action('Change voice', symbol=key.V, can_run=game.playing)
+def change_voice() -> None:
+    """Change the currently selected voice."""
+    voices = os.listdir(voices_directory)
+    index: int = voices.index(game.voice) + 1
+    if index == len(voices):
+        index = 0
+    game.voice = voices[index]
+    game.speak('name.wav')
 
 
 if __name__ == '__main__':
