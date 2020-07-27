@@ -2,18 +2,23 @@
 
 import os
 import os.path
+from json import dump, load
 from pathlib import Path
 from random import randint
-from typing import Dict, Generator, List, Optional, Tuple
+from typing import Any, Dict, Generator, List, Optional, Tuple
 
 from earwax import ActionMenu
 from earwax import Game as EarwaxGame
 from earwax import get_buffer
 from pyglet.clock import schedule_once
+from pyglet.resource import get_settings_path
 from pyglet.window import key
 from synthizer import Buffer, BufferGenerator, Context, DirectSource
 
-# The type fo board coordinates.
+# The app name.
+app_name: str = os.path.splitext(__file__)[0]
+
+# The type for board coordinates.
 Coordinates = Tuple[int, int]
 
 # The directory where voice packs are stored.
@@ -35,7 +40,7 @@ class Game(EarwaxGame):
         self.intro_generator: Optional[BufferGenerator] = None
         self.music_source: Optional[DirectSource] = None
         self.music_generator: Optional[BufferGenerator] = None
-        self.music_volume: float = 0.0
+        self.music_volume: float = 1.0
         self.sound_source: Optional[DirectSource] = None
         self.sound_generator: Optional[BufferGenerator] = None
         self.intro: bool = True
@@ -44,6 +49,9 @@ class Game(EarwaxGame):
         self.board_depth: int = 13
         super().__init__('Lucky Thirteen')
         self.voice: str = os.listdir(voices_directory)[0]
+        self.settings_file: Path = Path(
+            get_settings_path(app_name), app_name + '.json'
+        )
 
     def playing(self) -> bool:
         """Returns True if play is in progress."""
@@ -84,6 +92,7 @@ class Game(EarwaxGame):
         buf: Buffer = get_buffer('file', str(path))
         if self.music_source is None:
             self.music_source = DirectSource(self.ctx)
+            self.music_source.gain = self.music_volume
         if self.music_generator is None:
             self.music_generator = BufferGenerator(self.ctx)
             self.music_generator.looping = True
@@ -104,8 +113,27 @@ class Game(EarwaxGame):
 
     def before_run(self) -> None:
         """Play the intro audio."""
+        if self.settings_file.is_file():
+            with self.settings_file.open('r') as f:
+                data: Dict[str, Any] = load(f)
+            self.music_volume = data.get('music_volume', self.music_volume)
+            self.voice = data.get('voice', self.voice)
         self.ctx = Context()
         self.start_intro()
+        if self.window is not None:
+            self.window.event(self.on_close)
+
+    def on_close(self) -> None:
+        """Save the current configuration."""
+        data: Dict[str, Any] = {
+            'music_volume': self.music_volume,
+            'voice': self.voice
+        }
+        parent: Path = self.settings_file.parent
+        if not parent.is_dir():
+            parent.mkdir()
+        with self.settings_file.open('w') as f:
+            dump(data, f, indent='  ')
 
     def start_intro(self) -> None:
         """Start intro music."""
@@ -225,7 +253,7 @@ def backwards() -> None:
 @game.action('Music volume up', symbol=key.M)
 def music_up() -> None:
     """Reduce the music volume."""
-    game.music_volume += 0.1
+    game.music_volume = min(1.0, game.music_volume + 0.1)
     if game.music_source is not None:
         game.music_source.gain = game.music_volume
 
@@ -233,7 +261,7 @@ def music_up() -> None:
 @game.action('Music volume down', symbol=key.M, modifiers=key.MOD_SHIFT)
 def music_down() -> None:
     """Reduce the music volume."""
-    game.music_volume -= 0.1
+    game.music_volume = max(0.0, game.music_volume - 0.1)
     if game.music_source is not None:
         game.music_source.gain = game.music_volume
 
