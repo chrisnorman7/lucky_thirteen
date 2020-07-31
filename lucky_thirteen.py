@@ -28,6 +28,9 @@ voices_directory = Path('sounds', 'voices')
 # disable key repeat.
 move_speed: Optional[float] = None
 
+# The maximum number that should be randomly generated.
+max_number: int = 13
+
 
 class Game(EarwaxGame):
     """A game with the grid attached."""
@@ -46,7 +49,7 @@ class Game(EarwaxGame):
         self.intro: bool = True
         self.winning: bool = False
         self.board_size: int = 5
-        self.board_depth: int = 13
+        self.board_depth: int = max_number
         super().__init__('Lucky Thirteen')
         self.voice: str = os.listdir(voices_directory)[0]
         self.settings_file: Path = Path(
@@ -149,9 +152,9 @@ class Game(EarwaxGame):
         c: Coordinates
         for c in self.selected:
             value += self.board[c][-1]
-        if value == 13:
+        if value == max_number:
             self.win()
-        elif value > 13:
+        elif value > max_number:
             self.lose()
         else:
             return self.play_sound('select.wav')
@@ -179,7 +182,7 @@ class Game(EarwaxGame):
         """They have made more than 13."""
         self.play_sound('lose.wav')
         for c in self.selected:
-            self.board[c].append(randint(1, 13))
+            self.board[c].append(randint(1, max_number))
         self.selected.clear()
 
 
@@ -201,7 +204,7 @@ def skip_intro() -> Generator[None, None, None]:
             game.board[coords] = []
             z: int
             for z in range(game.board_depth):
-                game.board[coords].append(randint(1, 13))
+                game.board[coords].append(randint(1, max_number))
     game.show_selection()
 
 
@@ -275,11 +278,13 @@ def select_tile() -> None:
         if len(game.selected) >= 2:
             game.win()
         elif len(game.selected) == 1:
-            game.board[game.selected[0]][-1] = randint(1, 13)
+            game.board[game.selected[0]][-1] = randint(1, max_number)
             game.play_sound('randomise.wav')
             game.selected.clear()
         else:
+            game.board[game.coords].append(randint(1, max_number))
             game.show_selection()
+            game.selected.clear()
     else:
         game.selected.append(game.coords)
         game.check_selection()
@@ -299,7 +304,7 @@ def deselect_tiles() -> None:
 def show_depth() -> None:
     """says the depth of the currently selected stack."""
     l: int = len(game.board[game.coords])
-    if not l:
+    if not l or l > max_number:
         game.play_sound('fail.wav')
     else:
         game.speak(f'{l}.wav')
