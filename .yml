@@ -1,2 +1,0 @@
-- name: PyInstaller Windows
-  uses: JackMcKew/pyinstaller-action-windows@v0.1.2
