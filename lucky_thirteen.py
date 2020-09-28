@@ -2,23 +2,20 @@
 
 import os.path
 from pathlib import Path
-from random import randint
-from time import time
-from typing import Dict, List, Optional, Tuple
+from random import randint, sample
+from typing import List, Optional
 
-from attr import Factory, attrs
-from earwax import (ActionMenu, AdvancedInterfaceSoundPlayer, Box, BoxLevel,
-                    Config, ConfigValue, Game, IntroLevel, Point, Track)
+from earwax import (ActionMenu, Config, ConfigValue, Game, GameBoard,
+                    IntroLevel, Point, PointDirections, Track)
 from pyglet.window import Window, key, mouse
+
+NumberList = List[int]
 
 # The app name.
 app_name: str = os.path.splitext(__file__)[0]
 
 # The main game object.
 game: Game = Game(name=app_name)
-
-# The type for board coordinates.
-Coordinates = Tuple[float, float, float]
 
 # The directory where sounds are stored.
 sounds_directory: Path = Path('sounds')
@@ -63,80 +60,50 @@ try:
     with config_file.open('r') as f:
         config.load(f)
 except FileNotFoundError:
-    pass  # No settings have been saved.
+    pass  # No configuration has been saved yet.
 
 
-@attrs(auto_attribs=True)
-class Board(BoxLevel):
-    """A box level, with added goodies.
+@game.event
+def after_run() -> None:
+    """Save configuration values."""
+    if not config_dir.is_dir():
+        config_dir.mkdir()
+    with config_file.open('w') as f:
+        config.save(f)
 
-    The numbers that have been generated, the tiles that have been selected,
-    and the player's points are all stored here.
+
+# All the points that have numbers attached to them.
+points: List[Point] = []
+
+
+class Board(GameBoard[NumberList]):
+    """The game board.
+
+    The tiles that have been selected and the player's points are stored here.
     """
 
-    # The randomly generated numbers.
-    numbers: Dict[Coordinates, List[int]] = Factory(dict)
-
     # The list of coordinates that are currently selected.
-    selected: List[Coordinates] = Factory(list)
+    selected: List[Point] = []
 
     # The player's points.
     points: int = 0
 
-    # The sound player to use.
-    sound_player: Optional[AdvancedInterfaceSoundPlayer] = None
-
-    # The last time the mouse was used.
-    last_mouse: float = 0.0
-
-    # The minimum time between mouse moves.
-    mouse_interval: float = 0.5
-
-    def on_mouse_motion(self, x: int, y: int, dx: int, dy: int) -> None:
-        """Move through the grid with the mouse."""
-        now: float = time()
-        if (now - self.last_mouse) < self.mouse_interval:
-            return
-        self.last_mouse = now
-        b: int
-        if dx == -1:
-            b = 270
-        elif dx == 1:
-            b = 90
-        elif dy == -1:
-            b = 180
-        else:
-            b = 0
-        self.move(bearing=b)()
+    def empty_tile(self) -> bool:
+        """Returns ``True`` if the current tile is empty."""
+        return self.current_tile == []
 
     def play_sound(self, filename: str) -> None:
         """Play the given file."""
-        if self.sound_player is not None:
-            self.sound_player.play_path(Path('sounds', filename))
-
-    def empty_tile(self) -> bool:
-        """Returns True if the current tile is blank."""
-        return self.numbers[self.coordinates.floor().coordinates] == []
-
-    def show_selection(self) -> None:
-        """Show the currently selected number."""
-        coords: Coordinates = self.coordinates.floor().coordinates
-        if coords in self.selected:
-            return self.play_sound('select.wav')
-        phrase: str
-        if self.empty_tile():
-            phrase = 'wild.wav'
-        else:
-            phrase = f'{self.numbers[coords][-1]}.wav'
-        speak(phrase)
+        if game.interface_sound_player is not None:
+            game.interface_sound_player.play_path(Path('sounds', filename))
 
     def check_selection(self) -> None:
         """Check to see if the selection is less than (still selecting) equal
         to (winning) or greater than (losing) 13."""
         value: int = 0
-        c: Coordinates
-        for c in self.selected:
-            value += self.numbers[c][-1]
+        p: Point
+        for p in self.selected:
+            value += self.get_tile(p)[-1]
         if value == config.max_number.value:
             self.win()
         elif value > config.max_number.value:
@@ -146,69 +113,44 @@ class Board(BoxLevel):
 
     def win(self) -> None:
         """They have made exactly 13."""
-        c: Coordinates
-        for c in self.selected:
-            self.numbers[c].pop()
+        p: Point
+        for p in self.selected:
+            self.get_tile(p).pop()
         self.selected.clear()
-        if any(self.numbers.values()):
-            self.play_sound('win.wav')
+        for p in points:
+            if self.get_tile(p):
+                self.play_sound('win.wav')
+                break  # There are numbers left.
         else:
             game.replace_level(win_level)
 
     def lose(self) -> None:
         """They have made more than 13."""
         self.play_sound('lose.wav')
-        c: Coordinates
-        for c in self.selected:
-            self.numbers[c].append(randint(1, config.max_number.value))
+        p: Point
+        for p in self.selected:
+            self.get_tile(p).append(randint(1, config.max_number.value))
         self.selected.clear()
-
-    def calculate_coordinates(
-        self, distance: float, bearing: int
-    ) -> Tuple[float, float]:
-        """Use simple movement."""
-        x: float = self.coordinates.x
-        y: float = self.coordinates.y
-        if bearing == 0:
-            y += 1
-        elif bearing == 90:
-            x += 1
-        elif bearing == 180:
-            y -= 1
-        elif bearing == 270:
-            x -= 1
-        else:
-            raise RuntimeError(f'Invalid bearing : {repr(bearing)}.')
-        return x, y
 
     def on_push(self) -> None:
         """Populate the board."""
         super().on_push()
-        if self.game.audio_context is not None and self.sound_player is None:
-            self.sound_player = AdvancedInterfaceSoundPlayer(
-                self.game.audio_context
-            )
         self.coordinates.x = 0
         self.coordinates.y = 0
-        x: int
-        y: int
-        z: int
-        for x in range(config.board_size.value):
-            for y in range(config.board_size.value):
-                coords: Coordinates = (x, y, 0)
-                self.numbers[coords] = []
-                for z in range(config.max_number.value):
-                    self.numbers[coords].append(
-                        randint(1, config.max_number.value)
-                    )
-        self.show_selection()
+        self.dispatch_event('on_move', Point(0, 0, 0), self.current_tile)
+
+
+def build_tile(p: Point) -> NumberList:
+    """Build a list of numbers to use."""
+    points.append(p)
+    return sample(
+        range(1, config.max_number.value + 1), config.max_number.value
+    )
 
 
 board: Board = Board(
-    game, Box(
-        Point(0, 0, 0),
-        Point(config.board_size.value - 1, config.board_size.value - 1, 0)
-    )
+    game, Point(config.board_size.value, config.board_size.value, 1),
+    build_tile
 )
 
 main_music: Track = Track(
@@ -218,22 +160,28 @@ board.tracks.append(main_music)
 
 
 @board.event
-def on_move() -> None:
+def on_move(direction: Point, tile: NumberList) -> None:
     """Show the current number."""
-    board.show_selection()
+    if board.coordinates in board.selected:
+        return board.play_sound('select.wav')
+    phrase: str
+    if not tile:
+        phrase = 'wild.wav'
+    else:
+        phrase = f'{tile[-1]}.wav'
+    speak(phrase)
 
 
 @board.event
-def on_move_fail(distance, vertical, bearing) -> None:
+def on_move_fail(direction: Point) -> None:
     """Play the wall sound."""
-    if board.sound_player is not None:
-        board.sound_player.play_path(sounds_directory / 'wall.wav')
+    board.play_sound('wall.wav')
 
 
 def speak(string: str) -> None:
     """Play a from the voices directory."""
-    if board.sound_player is not None:
-        board.sound_player.play_path(
+    if game.interface_sound_player is not None:
+        game.interface_sound_player.play_path(
             voices_directory / config.voice.value / string
         )
 
@@ -241,7 +189,9 @@ def speak(string: str) -> None:
 intro_level: IntroLevel = IntroLevel(
     game, board, voices_directory / config.voice.value / 'intro.wav', None
 )
-intro_level.action('Skip', symbol=key.RETURN)(intro_level.skip)
+intro_level.action('Skip', symbol=key.RETURN, joystick_button=0)(
+    intro_level.skip
+)
 
 intro_music: Track = Track(
     music_directory / 'intro.mp3', gain=config.music_volume.value
@@ -252,20 +202,25 @@ win_level: IntroLevel = IntroLevel(
     game, intro_level, sounds_directory / 'won.wav', 1.0
 )
 
-board.action('Move left', symbol=key.LEFT, interval=move_speed)(
-    board.move(bearing=270)
-)
+board.action(
+    'Move left', symbol=key.LEFT, interval=move_speed,
+    hat_direction=(-1, 0)
+)(board.move(PointDirections.west))
 
-board.action('Move right', symbol=key.RIGHT, interval=move_speed)(
-    board.move(bearing=90)
-)
+board.action(
+    'Move right', symbol=key.RIGHT, interval=move_speed,
+    hat_direction=(1, 0)
+)(board.move(PointDirections.east))
 
-board.action('Move forward', symbol=key.UP, interval=move_speed)(
-    board.move(bearing=0)
-)
+board.action(
+    'Move forward', symbol=key.UP, interval=move_speed,
+    hat_direction=(0, 1)
+)(board.move(PointDirections.north))
 
-board.action('Move backwards', symbol=key.DOWN, interval=move_speed)(
-    board.move(bearing=180)
+board.action(
+    'Move backwards', symbol=key.DOWN, interval=move_speed,
+    hat_direction=(0, -1)
+)(board.move(PointDirections.south)
 )
 
 
@@ -278,46 +233,52 @@ def set_music_volume(value: float) -> None:
             t.source.gain = value
 
 
-@board.action('Music volume up', symbol=key.M)
+@board.action('Music volume up', symbol=key.M, joystick_button=5)
 def music_up() -> None:
     """Increase the music volume."""
     set_music_volume(min(1.0, config.music_volume.value + 0.05))
 
 
-@board.action('Music volume down', symbol=key.M, modifiers=key.MOD_SHIFT)
+@board.action(
+    'Music volume down', symbol=key.M, modifiers=key.MOD_SHIFT,
+    joystick_button=4
+)
 def music_down() -> None:
     """Reduce the music volume."""
     set_music_volume(max(0.0, config.music_volume.value - 0.05))
 
 
-@board.action('Select tile', symbol=key.RETURN, mouse_button=mouse.LEFT)
+@board.action(
+    'Select tile', symbol=key.RETURN, mouse_button=mouse.LEFT,
+    joystick_button=0
+)
 def select_tile() -> None:
     """Select the current tile."""
-    coords: Coordinates = board.coordinates.floor().coordinates
-    if coords in board.selected:
+    if board.coordinates in board.selected:
         board.play_sound('fail.wav')
     elif board.empty_tile():
         if len(board.selected) >= 2:
             board.win()
         elif len(board.selected) == 1:
-            board.numbers[board.selected[0]][-1] = randint(
+            board.get_tile(board.selected[0])[-1] = randint(
                 1, config.max_number.value
             )
             board.play_sound('randomise.wav')
             board.selected.clear()
         else:
-            board.numbers[coords].append(
+            board.current_tile.append(
                 randint(1, config.max_number.value)
             )
             board.show_selection()
             board.selected.clear()
     else:
-        board.selected.append(coords)
+        board.selected.append(board.coordinates)
         board.check_selection()
 
 
 @board.action(
-    'Deselect all tiles', symbol=key.ESCAPE, mouse_button=mouse.RIGHT
+    'Deselect all tiles', symbol=key.ESCAPE, mouse_button=mouse.RIGHT,
+    joystick_button=2
 )
 def deselect_tiles() -> None:
     """Deselect all tiles."""
@@ -328,10 +289,13 @@ def deselect_tiles() -> None:
         board.play_sound('deselect.wav')
 
 
-@board.action('Show stack depth', symbol=key.D, mouse_button=mouse.MIDDLE)
+@board.action(
+    'Show stack depth', symbol=key.D, mouse_button=mouse.MIDDLE,
+    joystick_button=3
+)
 def show_depth() -> None:
     """says the depth of the currently selected stack."""
-    l: int = len(board.numbers[board.coordinates.floor().coordinates])
+    l: int = len(board.current_tile)
     if not l or l > config.max_number.value:
         board.play_sound('fail.wav')
     else:
@@ -344,7 +308,7 @@ def help_menu() -> None:
     game.push_level(ActionMenu(game, 'Actions'))
 
 
-@board.action('Change voice', symbol=key.V)
+@board.action('Change voice', symbol=key.V, joystick_button=6)
 def change_voice() -> None:
     """Change the currently selected voice."""
     index: int = voices.index(config.voice.value) + 1
@@ -354,17 +318,15 @@ def change_voice() -> None:
     speak('name.wav')
 
 
-win_level.action('Skip', symbol=key.RETURN)(win_level.skip)
+win_level.action('Skip', symbol=key.RETURN, joystick_button=0)(
+    win_level.skip
+)
 
 level: IntroLevel
 for level in (intro_level, win_level):
-    level.action('Exit', symbol=key.ESCAPE, mouse_button=mouse.RIGHT)(
-        lambda: game.window.dispatch_event('on_close')
-    )
+    level.action(
+        'Exit', symbol=key.ESCAPE, mouse_button=mouse.RIGHT, joystick_button=7
+    )(lambda: game.window.dispatch_event('on_close'))
 
 if __name__ == '__main__':
     game.run(Window(caption=app_name), initial_level=intro_level)
-    if not config_dir.is_dir():
-        config_dir.mkdir()
-    with config_file.open('w') as f:
-        config.save(f)
