@@ -6,7 +6,7 @@ from random import randint, sample
 from typing import List, Optional
 
 from earwax import (ActionMenu, Config, ConfigValue, Game, GameBoard,
-                    IntroLevel, Point, PointDirections, Track)
+                    IntroLevel, Point, PointDirections, Track, hat_directions)
 from pyglet.window import Window, key, mouse
 
 NumberList = List[int]
@@ -42,7 +42,7 @@ class GameConfig(Config):
 
     voice: ConfigValue = ConfigValue(voices[0], type_=voices)
     board_size: ConfigValue = ConfigValue(
-        5, name='The length of each side of the board'
+        4, name='The length of each side of the board'
     )
     max_number: ConfigValue = ConfigValue(
         13, name='The maximum number that should be generated'
@@ -72,10 +72,6 @@ def after_run() -> None:
         config.save(f)
 
 
-# All the points that have numbers attached to them.
-points: List[Point] = []
-
-
 class Board(GameBoard[NumberList]):
     """The game board.
 
@@ -84,9 +80,6 @@ class Board(GameBoard[NumberList]):
 
     # The list of coordinates that are currently selected.
     selected: List[Point] = []
-
-    # The player's points.
-    points: int = 0
 
     def empty_tile(self) -> bool:
         """Returns ``True`` if the current tile is empty."""
@@ -117,8 +110,8 @@ class Board(GameBoard[NumberList]):
         for p in self.selected:
             self.get_tile(p).pop()
         self.selected.clear()
-        for p in points:
-            if self.get_tile(p):
+        for p in self.populated_points:
+            if len(self.get_tile(p)) > 0:
                 self.play_sound('win.wav')
                 break  # There are numbers left.
         else:
@@ -132,43 +125,37 @@ class Board(GameBoard[NumberList]):
             self.get_tile(p).append(randint(1, config.max_number.value))
         self.selected.clear()
 
-    def on_push(self) -> None:
-        """Populate the board."""
-        super().on_push()
-        self.coordinates.x = 0
-        self.coordinates.y = 0
-        self.dispatch_event('on_move', Point(0, 0, 0), self.current_tile)
-
 
 def build_tile(p: Point) -> NumberList:
     """Build a list of numbers to use."""
-    points.append(p)
     return sample(
         range(1, config.max_number.value + 1), config.max_number.value
     )
 
 
 board: Board = Board(
-    game, Point(config.board_size.value, config.board_size.value, 1),
+    game, Point(config.board_size.value, config.board_size.value, 0),
     build_tile
 )
 
-main_music: Track = Track(
-    music_directory / 'main.mp3', gain=config.music_volume.value
-)
-board.tracks.append(main_music)
+
+@board.event
+def on_push() -> None:
+    """Speak the current tile."""
+    board.populate()
+    board.dispatch_event('on_move', Point(0, 0, 0))
 
 
 @board.event
-def on_move(direction: Point, tile: NumberList) -> None:
+def on_move(direction: Point) -> None:
     """Show the current number."""
     if board.coordinates in board.selected:
         return board.play_sound('select.wav')
     phrase: str
-    if not tile:
+    if board.empty_tile():
         phrase = 'wild.wav'
     else:
-        phrase = f'{tile[-1]}.wav'
+        phrase = f'{board.current_tile[-1]}.wav'
     speak(phrase)
 
 
@@ -178,50 +165,26 @@ def on_move_fail(direction: Point) -> None:
     board.play_sound('wall.wav')
 
 
-def speak(string: str) -> None:
-    """Play a from the voices directory."""
-    if game.interface_sound_player is not None:
-        game.interface_sound_player.play_path(
-            voices_directory / config.voice.value / string
-        )
-
-
-intro_level: IntroLevel = IntroLevel(
-    game, board, voices_directory / config.voice.value / 'intro.wav', None
-)
-intro_level.action('Skip', symbol=key.RETURN, joystick_button=0)(
-    intro_level.skip
-)
-
-intro_music: Track = Track(
-    music_directory / 'intro.mp3', gain=config.music_volume.value
-)
-intro_level.tracks.append(intro_music)
-
-win_level: IntroLevel = IntroLevel(
-    game, intro_level, sounds_directory / 'won.wav', 1.0
-)
 
 board.action(
     'Move left', symbol=key.LEFT, interval=move_speed,
-    hat_direction=(-1, 0)
+    hat_direction=hat_directions.LEFT
 )(board.move(PointDirections.west))
 
 board.action(
     'Move right', symbol=key.RIGHT, interval=move_speed,
-    hat_direction=(1, 0)
+    hat_direction=hat_directions.RIGHT
 )(board.move(PointDirections.east))
 
 board.action(
     'Move forward', symbol=key.UP, interval=move_speed,
-    hat_direction=(0, 1)
+    hat_direction=hat_directions.UP
 )(board.move(PointDirections.north))
 
 board.action(
     'Move backwards', symbol=key.DOWN, interval=move_speed,
-    hat_direction=(0, -1)
-)(board.move(PointDirections.south)
-)
+    hat_direction=hat_directions.DOWN
+)(board.move(PointDirections.south))
 
 
 def set_music_volume(value: float) -> None:
@@ -269,7 +232,7 @@ def select_tile() -> None:
             board.current_tile.append(
                 randint(1, config.max_number.value)
             )
-            board.show_selection()
+            board.dispatch_event('on_move', Point(0, 0, 0))
             board.selected.clear()
     else:
         board.selected.append(board.coordinates)
@@ -316,6 +279,36 @@ def change_voice() -> None:
         index = 0
     config.voice.value = voices[index]
     speak('name.wav')
+
+
+def speak(string: str) -> None:
+    """Play a from the voices directory."""
+    if game.interface_sound_player is not None:
+        game.interface_sound_player.play_path(
+            voices_directory / config.voice.value / string
+        )
+
+
+main_music: Track = Track(
+    music_directory / 'main.mp3', gain=config.music_volume.value
+)
+board.tracks.append(main_music)
+
+intro_level: IntroLevel = IntroLevel(
+    game, board, voices_directory / config.voice.value / 'intro.wav', None
+)
+intro_level.action('Skip', symbol=key.RETURN, joystick_button=0)(
+    intro_level.skip
+)
+
+intro_music: Track = Track(
+    music_directory / 'intro.mp3', gain=config.music_volume.value
+)
+intro_level.tracks.append(intro_music)
+
+win_level: IntroLevel = IntroLevel(
+    game, intro_level, sounds_directory / 'won.wav', 1.0
+)
 
 
 win_level.action('Skip', symbol=key.RETURN, joystick_button=0)(
