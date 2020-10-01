@@ -165,7 +165,6 @@ def on_move_fail(direction: Point) -> None:
     board.play_sound('wall.wav')
 
 
-
 board.action(
     'Move left', symbol=key.LEFT, interval=move_speed,
     hat_direction=hat_directions.LEFT
@@ -265,7 +264,9 @@ def show_depth() -> None:
         speak(f'{l}.wav')
 
 
-@board.action('Help menu', symbol=key.SLASH, modifiers=key.MOD_SHIFT)
+@board.action(
+    'Help menu', symbol=key.SLASH, modifiers=key.MOD_SHIFT, joystick_button=1
+)
 def help_menu() -> None:
     """Show the help menu."""
     game.push_level(ActionMenu(game, 'Actions'))
