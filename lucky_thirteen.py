@@ -56,7 +56,7 @@ earwax_config: Path = config_dir / 'earwax.yaml'
 
 
 @game.event
-def before_run() -> None:
+def setup() -> None:
     """Load configuration from disk."""
     if config_file.is_file():
         with config_file.open('r') as f:
