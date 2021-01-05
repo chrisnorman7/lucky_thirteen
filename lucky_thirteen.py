@@ -1,18 +1,18 @@
 """A game where you have to select numbers making up 13."""
 
-import os.path
 from pathlib import Path
 from random import randint, sample
 from typing import List, Optional
 
 from earwax import (ActionMenu, Config, ConfigValue, Game, GameBoard,
                     IntroLevel, Point, PointDirections, Track, hat_directions)
+from earwax.track import TrackTypes
 from pyglet.window import Window, key, mouse
 
 NumberList = List[int]
 
 # The app name.
-app_name: str = os.path.splitext(__file__)[0]
+app_name: str = 'Lucky Thirteen'
 
 # The main game object.
 game: Game = Game(name=app_name)
@@ -47,20 +47,26 @@ class GameConfig(Config):
     max_number: ConfigValue = ConfigValue(
         13, name='The maximum number that should be generated'
     )
-    music_volume: ConfigValue = ConfigValue(
-        0.2, name='The volume of game music'
-    )
 
 
 config: GameConfig = GameConfig()
 config_dir: Path = game.get_settings_path()
 config_file: Path = config_dir / 'config.yaml'
+earwax_config: Path = config_dir / 'earwax.yaml'
 
-try:
-    with config_file.open('r') as f:
-        config.load(f)
-except FileNotFoundError:
-    pass  # No configuration has been saved yet.
+
+@game.event
+def before_run() -> None:
+    """Load configuration from disk."""
+    if config_file.is_file():
+        with config_file.open('r') as f:
+            config.load(f)
+        intro_level.sound_path = (
+            voices_directory / config.voice.value / 'intro.wav'
+        )
+        if earwax_config.is_file():
+            with earwax_config.open('r') as f:
+                game.config.load(f)
 
 
 @game.event
@@ -70,6 +76,8 @@ def after_run() -> None:
         config_dir.mkdir()
     with config_file.open('w') as f:
         config.save(f)
+    with earwax_config.open('w') as f:
+        game.config.save(f)
 
 
 class Board(GameBoard[NumberList]):
@@ -82,17 +90,22 @@ class Board(GameBoard[NumberList]):
     selected: List[Point] = []
 
     def empty_tile(self) -> bool:
-        """Returns ``True`` if the current tile is empty."""
+        """Return ``True`` if the current tile is empty."""
         return self.current_tile == []
 
     def play_sound(self, filename: str) -> None:
         """Play the given file."""
-        if game.interface_sound_player is not None:
-            game.interface_sound_player.play_path(Path('sounds', filename))
+        if game.interface_sound_manager is not None:
+            game.interface_sound_manager.play_path(
+                sounds_directory / filename, True
+            )
 
     def check_selection(self) -> None:
-        """Check to see if the selection is less than (still selecting) equal
-        to (winning) or greater than (losing) 13."""
+        """Check the current selection.
+
+        Checks to see if the selection is less than (still selecting) equal to
+        (winning) or greater than (losing) 13.
+        """
         value: int = 0
         p: Point
         for p in self.selected:
@@ -188,17 +201,17 @@ board.action(
 
 def set_music_volume(value: float) -> None:
     """Set the music volume."""
-    config.music_volume.value = value
+    game.config.sound.music_volume.value = value
     t: Track
     for t in (intro_music, main_music):
-        if t.source is not None:
-            t.source.gain = value
+        if t.sound_manager is not None:
+            t.sound_manager.gain = value
 
 
 @board.action('Music volume up', symbol=key.M, joystick_button=5)
 def music_up() -> None:
     """Increase the music volume."""
-    set_music_volume(min(1.0, config.music_volume.value + 0.05))
+    set_music_volume(min(1.0, game.config.sound.music_volume.value + 0.05))
 
 
 @board.action(
@@ -207,7 +220,7 @@ def music_up() -> None:
 )
 def music_down() -> None:
     """Reduce the music volume."""
-    set_music_volume(max(0.0, config.music_volume.value - 0.05))
+    set_music_volume(max(0.0, game.config.sound.music_volume.value - 0.05))
 
 
 @board.action(
@@ -256,7 +269,7 @@ def deselect_tiles() -> None:
     joystick_button=3
 )
 def show_depth() -> None:
-    """says the depth of the currently selected stack."""
+    """Speak the depth of the currently selected stack."""
     l: int = len(board.current_tile)
     if not l or l > config.max_number.value:
         board.play_sound('fail.wav')
@@ -282,16 +295,24 @@ def change_voice() -> None:
     speak('name.wav')
 
 
+@board.action(
+    'Quit the game', symbol=key.Q, modifiers=key.MOD_CTRL, joystick_button=7
+)
+def quit_game() -> None:
+    """Quit the game."""
+    game.stop()
+
+
 def speak(string: str) -> None:
-    """Play a from the voices directory."""
-    if game.interface_sound_player is not None:
-        game.interface_sound_player.play_path(
-            voices_directory / config.voice.value / string
+    """Play a path from the voices directory."""
+    if game.interface_sound_manager is not None:
+        game.interface_sound_manager.play_path(
+            voices_directory / config.voice.value / string, True
         )
 
 
 main_music: Track = Track(
-    music_directory / 'main.mp3', gain=config.music_volume.value
+    'file', str(music_directory / 'main.mp3'), TrackTypes.music
 )
 board.tracks.append(main_music)
 
@@ -303,7 +324,7 @@ intro_level.action('Skip', symbol=key.RETURN, joystick_button=0)(
 )
 
 intro_music: Track = Track(
-    music_directory / 'intro.mp3', gain=config.music_volume.value
+    'file', str(music_directory / 'intro.mp3'), TrackTypes.music
 )
 intro_level.tracks.append(intro_music)
 
@@ -323,4 +344,5 @@ for level in (intro_level, win_level):
     )(lambda: game.window.dispatch_event('on_close'))
 
 if __name__ == '__main__':
-    game.run(Window(caption=app_name), initial_level=intro_level)
+    window: Window = Window(caption=app_name)
+    game.run(window, initial_level=intro_level)
