@@ -5,8 +5,8 @@ from random import randint, sample
 from typing import List, Optional
 
 from earwax import (ActionMenu, Config, ConfigValue, Game, GameBoard,
-                    IntroLevel, Point, PointDirections, Track, hat_directions)
-from earwax.track import TrackTypes
+                    IntroLevel, Point, PointDirections, Sound, Track,
+                    TrackTypes, hat_directions)
 from pyglet.window import Window, key, mouse
 
 NumberList = List[int]
@@ -26,11 +26,7 @@ music_directory: Path = sounds_directory / 'music'
 # The directory where voice packs are stored.
 voices_directory = sounds_directory / 'voices'
 
-voices: List[str] = []
-
-voice_name: Path
-for voice_name in voices_directory.iterdir():
-    voices.append(voice_name.name)
+voices: List[str] = [x.name for x in voices_directory.iterdir()]
 
 # The speed the player can move. Set to None to allow movement at any time, and
 # disable key repeat.
@@ -88,6 +84,7 @@ class Board(GameBoard[NumberList]):
 
     # The list of coordinates that are currently selected.
     selected: List[Point] = []
+    last_number_sound: Optional[Sound] = None
 
     def empty_tile(self) -> bool:
         """Return ``True`` if the current tile is empty."""
@@ -95,6 +92,9 @@ class Board(GameBoard[NumberList]):
 
     def play_sound(self, filename: str) -> None:
         """Play the given file."""
+        if self.last_number_sound is not None:
+            self.last_number_sound.destroy()
+            self.last_number_sound = None
         if game.interface_sound_manager is not None:
             game.interface_sound_manager.play_path(
                 sounds_directory / filename, True
@@ -152,8 +152,8 @@ board: Board = Board(
 )
 
 
-@board.event
-def on_push() -> None:
+@board.event('on_push')
+def board_on_push() -> None:
     """Speak the current tile."""
     board.populate()
     board.dispatch_event('on_move', Point(0, 0, 0))
@@ -162,14 +162,18 @@ def on_push() -> None:
 @board.event
 def on_move(direction: Point) -> None:
     """Show the current number."""
+    if board.last_number_sound is not None:
+        board.last_number_sound.destroy()
+        board.last_number_sound = None
     if board.coordinates in board.selected:
-        return board.play_sound('select.wav')
+        board.play_sound('select.wav')
+        return None
     phrase: str
     if board.empty_tile():
         phrase = 'wild.wav'
     else:
         phrase = f'{board.current_tile[-1]}.wav'
-    speak(phrase)
+    board.last_number_sound = speak(phrase)
 
 
 @board.event
@@ -303,12 +307,13 @@ def quit_game() -> None:
     game.stop()
 
 
-def speak(string: str) -> None:
+def speak(string: str) -> Optional[Sound]:
     """Play a path from the voices directory."""
     if game.interface_sound_manager is not None:
-        game.interface_sound_manager.play_path(
-            voices_directory / config.voice.value / string, True
+        return game.interface_sound_manager.play_path(
+            voices_directory / config.voice.value / string, False
         )
+    return None
 
 
 main_music: Track = Track(
@@ -322,6 +327,13 @@ intro_level: IntroLevel = IntroLevel(
 intro_level.action('Skip', symbol=key.RETURN, joystick_button=0)(
     intro_level.skip
 )
+
+
+@intro_level.event('on_push')
+def intro_on_push() -> None:
+    """Set the proper sound manager."""
+    intro_level.sound_manager = game.interface_sound_manager
+
 
 intro_music: Track = Track(
     'file', str(music_directory / 'intro.mp3'), TrackTypes.music
