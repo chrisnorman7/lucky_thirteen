@@ -93,12 +93,11 @@ class Board(GameBoard[NumberList]):
     def play_sound(self, filename: str) -> None:
         """Play the given file."""
         if self.last_number_sound is not None:
-            self.last_number_sound.destroy()
+            if not self.last_number_sound.destroyed:
+                self.last_number_sound.destroy()
             self.last_number_sound = None
         if game.interface_sound_manager is not None:
-            game.interface_sound_manager.play_path(
-                sounds_directory / filename, True
-            )
+            game.interface_sound_manager.play_path(sounds_directory / filename)
 
     def check_selection(self) -> None:
         """Check the current selection.
@@ -156,14 +155,15 @@ board: Board = Board(
 def board_on_push() -> None:
     """Speak the current tile."""
     board.populate()
-    board.dispatch_event('on_move', Point(0, 0, 0))
+    board.dispatch_event('on_move_success', Point(0, 0, 0))
 
 
 @board.event
-def on_move(direction: Point) -> None:
+def on_move_success(direction: Point) -> None:
     """Show the current number."""
     if board.last_number_sound is not None:
-        board.last_number_sound.destroy()
+        if not board.last_number_sound.destroyed:
+            board.last_number_sound.destroy()
         board.last_number_sound = None
     if board.coordinates in board.selected:
         board.play_sound('select.wav')
@@ -208,8 +208,10 @@ def set_music_volume(value: float) -> None:
     game.config.sound.music_volume.value = value
     t: Track
     for t in (intro_music, main_music):
-        if t.sound_manager is not None:
-            t.sound_manager.gain = value
+        if t.sound is not None:
+            t.sound.set_gain(value)
+    if game.music_sound_manager is not None:
+        game.music_sound_manager.default_gain = value
 
 
 @board.action('Music volume up', symbol=key.M, joystick_button=5)
@@ -248,7 +250,7 @@ def select_tile() -> None:
             board.current_tile.append(
                 randint(1, config.max_number.value)
             )
-            board.dispatch_event('on_move', Point(0, 0, 0))
+            board.dispatch_event('on_move_success', Point(0, 0, 0))
             board.selected.clear()
     else:
         board.selected.append(board.coordinates)
@@ -311,7 +313,7 @@ def speak(string: str) -> Optional[Sound]:
     """Play a path from the voices directory."""
     if game.interface_sound_manager is not None:
         return game.interface_sound_manager.play_path(
-            voices_directory / config.voice.value / string, False
+            voices_directory / config.voice.value / string
         )
     return None
 
